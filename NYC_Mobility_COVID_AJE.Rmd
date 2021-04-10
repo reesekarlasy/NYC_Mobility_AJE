@@ -1,0 +1,385 @@
+---
+title: "NYC_Mobility_Script"
+author: "Reese Sy"
+date: "4/9/2021"
+output: pdf_document
+---
+
+# Socioeconomic disparities in subway use and COVID-19 outcomes in New York City
+## Citation
+Sy, Karla Therese L.; Martinez, Micaela E.; Rader, Benjamin; White, Laura F. (2020), Socioeconomic disparities in subway use and COVID-19 outcomes in New York City, Dryad, Dataset, https://doi.org/10.5061/dryad.vhhmgqnrh
+
+## Work described in:
+Using data from New York City, we found that there was an estimated 28-day lag between the onset of reduced subway use and the end of the exponential growth period of SARS-CoV-2 within New York City boroughs. We also conducted a cross-sectional analysis of the associations between human mobility (i.e., subway ridership), sociodemographic factors, and COVID-19 incidence as of April 26, 2020. Areas with lower median income, a greater percentage of individuals who identify as non-white and/or Hispanic/Latino, a greater percentage of essential workers, and a greater percentage of healthcare essential workers had greater mobility during the pandemic. When adjusted for the percent of essential workers, these associations do not remain, suggesting essential work drives human movement in these areas. Increased mobility and all sociodemographic variables (except percent older than 75 years old and percent of healthcare essential workers) was associated with a higher rate of COVID-19 cases per 100k, when adjusted for testing effort. Our study demonstrates that the most socially disadvantaged are not only at an increased risk for COVID-19 infection, but lack the privilege to fully engage in social distancing interventions.
+
+
+### Original Data Sources:
+
+1. Weekly Metropolitan Transportation Authority (MTA) New York City transit subway data are publicly availably (Link: https://data.ny.gov/Transportation/Fare-Card-History-for-Metropolitan-Transportation-/v7qc-gwpn).
+
+2. New York City Department of Health and Mental Hygiene COVID-19 data are available openly (Link: https://github.com/nychealth/coronavirus-data).
+
+### Funding
+National Science Foundation, Award: 2029421
+Tides Foundation, Award: TF2003-089662
+National Institutes of Health, Award: GM122876
+
+
+```{r installing, include = FALSE}
+pkgs <- c("ggplot2", "maps", "maptools", "dplyr", "RColorBrewer", "rgdal", "segmented", "rpsychi","lubridate")
+ 
+ for (p in pkgs) {
+ 	if (inherits(try(library(p, character.only = TRUE)), "try-error"))
+ 		install.packages(p, character.only = TRUE, repos = "http://cran.us.r-project.org")
+ }
+```
+
+
+```{r setup, include=FALSE}
+setwd('C:/Users/karla/OneDrive/Documents/Boston University/COVID/NYC Subway/Github/Data/')
+COVID_mobility_zcta_c <- read.csv("1._Cross-sectional_COVID19_mobility_zcta.csv")
+COVID_bor_l <- read.csv("2._Longitudinal_COVID19_borough.csv")
+mobility_zcta_bor_l <- read.csv("3._Longitudinal_Mobility_zcta_borough.csv")
+mobility_zcta_map <- read.csv("4._Map_Mobility_zcta.csv")
+regression_output <- read.csv("5._Regression_output.csv", stringsAsFactors = TRUE)
+
+```
+
+## Figure 1
+New York City reduction in subway use in zip code tabulation areas during the coronavirus disease 2019 outbreak on the week of A)
+February 29, 2020; B) March 7, 2020; C) March 14, 2020; D) March 21, 2020; and E) April 11, 2020. Reductions were calculated as the change
+in subway use relative to the pre-shutdown period and standardized by the pre-shutdown standard deviation. B–D) Maps correspond to key New
+York City executive orders, as follows: B) local state of emergency, restricted gatherings exceeding 500 persons; C) city school closures; and D)
+stay-at-home order, nonessential businesses closure (20, 21).
+
+```{r fig1, echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+loop <- colnames(mobility_zcta_map)[4:8] #2/29 - 4/11 (missing 4/3)
+for(a in loop) { 
+  plot_2 <- ggplot()
+  fill_plot <- sym(a)
+  plot_2a <- plot_2 +  geom_polygon(data=mobility_zcta_map, aes(x=long, y=lat, group=ZCTA, fill=!!fill_plot), color = "black", size=0.5, show.legend=TRUE) + scale_fill_distiller(palette="YlGnBu", na.value="gray92", trans="reverse", limits=c(1,-42), breaks=c(1,-42), labels=c("Least\ndecrease","\n\nGreatest\ndecrease"))
+  plot_2b <- plot_2a + xlim(-74.08, -73.63) +  ylim(40.55, 40.92) + xlab("") + ylab("") + ggtitle(a)
+  plot_2c <- plot_2b + theme_minimal()  + labs(fill = "Decrease in \nMobility")  + theme(
+    plot.title = element_text(color="black", size=16, face="bold"),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    axis.title.y=element_blank(),
+    axis.text.y=element_blank(),
+    axis.ticks.y=element_blank())
+  plot(plot_2c)
+}
+
+```
+
+## Figure 2
+Segmented regression for subway use and log of cumulative cases, by borough, between February 22, 2020, and April 11, 2020.
+Opaque lines represent the fitted regression estimates, and transparent loess smoothed lines denote empirical case data. Vertical dashed lines
+indicate the breakpoints of subway use (i.e., date of onset of decline in subway use) and of log of cumulative reported cases (end date of
+exponential growth period) for each borough.
+
+```{r fig2, echo=FALSE, fig.height=5.5, fig.width=8, message=FALSE, warning=FALSE}
+
+############Segmented regression from mobility data#################
+
+mobility_zcta_bor_l$date1 <- (mdy(as.character(mobility_zcta_bor_l$date)) - as.Date("2020-01-04"))/7
+
+#Stratify by borough
+queens_subway <- mobility_zcta_bor_l[mobility_zcta_bor_l$borough=="Queens",]
+man_subway <- mobility_zcta_bor_l[mobility_zcta_bor_l$borough=="Manhattan",]
+bronx_subway <- mobility_zcta_bor_l[mobility_zcta_bor_l$borough=="Bronx",]
+bk_subway <- mobility_zcta_bor_l[mobility_zcta_bor_l$borough=="Brooklyn",]
+
+#Linear regression
+lm_q <-lm(mobility~date1, data=queens_subway)
+lm_m <-lm(mobility~date1, data=man_subway)
+lm_bx <-lm(mobility~date1, data=bronx_subway)
+lm_bk <-lm(mobility~date1, data=bk_subway)
+
+#Segmented regression
+q<-segmented(lm_q,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+m<-segmented(lm_m,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+bx<-segmented(lm_bx,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+bk<-segmented(lm_bk,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+
+#Get segmented regression dates and 95% CI
+a1 <- (lm_q$fitted.values-(coef(lm_q)[1]))
+date_q <- ymd("2020-01-04") + 7*round(a1/coef(lm_q)[2])
+a1 <- (lm_m$fitted.values-(coef(lm_m)[1]))
+date_m <- ymd("2020-01-04") + 7*round(a1/coef(lm_m)[2])
+a1 <- (lm_bk$fitted.values-(coef(lm_bk)[1]))
+date_bk <- ymd("2020-01-04") + 7*round(a1/coef(lm_bk)[2])
+a1 <- (lm_bx$fitted.values-(coef(lm_bx)[1]))
+date_bx <- ymd("2020-01-04") + 7*round(a1/coef(lm_bx)[2])
+
+##Linear model fit
+fitted_q <- broken.line(q)$fit
+fitted_bk <- broken.line(bk)$fit
+fitted_bx <- broken.line(bx)$fit
+fitted_m <- broken.line(m)$fit
+
+#Combine dates and linear fit into one data frame
+
+q_data <- cbind.data.frame(date_q, fitted_q)
+bk_data <- cbind.data.frame(date_bk, fitted_bk)
+bx_data <- cbind.data.frame(date_bx, fitted_bx)
+m_data <- cbind.data.frame(date_m, fitted_m)
+
+Queens <- unique(q_data)
+Queens$Borough <- "Queens"
+Brooklyn <- unique(bk_data)
+Brooklyn$Borough <- "Brooklyn"
+Manhattan <- unique(m_data)
+Manhattan$Borough <- "Manhattan"
+Bronx <- unique(bx_data)
+Bronx$Borough <- "Bronx"
+
+colnames(Queens)[1:2] <- c("Dates", "Pred")
+colnames(Brooklyn)[1:2] <- c("Dates", "Pred")
+colnames(Manhattan)[1:2] <- c("Dates", "Pred")
+colnames(Bronx)[1:2] <- c("Dates", "Pred")
+
+seg <- rbind(Queens, Brooklyn, Manhattan, Bronx)
+seg <- seg[seg$Dates >= as.Date("2020-02-15"),]
+
+###########Segmented regression from case data#####################
+
+COVID_bor_l$case_log <- log(COVID_bor_l$cumincidence)
+COVID_bor_l$case_log[COVID_bor_l$case_log==-Inf] <- 0
+COVID_bor_l$date1 <- as.numeric(mdy(as.character(COVID_bor_l$date)) - as.Date("2020-02-15"))
+
+#Stratify by borough
+queens <- COVID_bor_l[COVID_bor_l$borough=="Queens",]
+man <- COVID_bor_l[COVID_bor_l$borough=="New York",]
+bronx <- COVID_bor_l[COVID_bor_l$borough=="Bronx",]
+brooklyn <- COVID_bor_l[COVID_bor_l$borough=="Kings",]
+
+#Linear regression
+lm_q_exp <-lm(case_log~date1, data=queens)
+lm_m_exp <-lm(case_log~date1, data=man)
+lm_bx_exp <-lm(case_log~date1, data=bronx)
+lm_bk_exp <-lm(case_log~date1, data=brooklyn)
+
+#Segmented regression
+q_exp<-segmented(lm_q_exp,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+m_exp<-segmented(lm_m_exp,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+bx_exp<-segmented(lm_bx_exp,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+bk_exp<-segmented(lm_bk_exp,seg.Z=~date1, npsi=1,control=seg.control(display=TRUE))
+
+#Get segmented regression dates and 95% CI
+psi_all <- as.data.frame(rbind(bx_exp$psi, bk_exp$psi, m_exp$psi, q_exp$psi))
+exp_est <- psi_all$Est.
+exp_SE <- psi_all$St.Err
+
+##Linear model fit
+fitted_q_exp <- broken.line(q_exp)$fit
+fitted_bk_exp <- broken.line(bk_exp)$fit
+fitted_bx_exp <- broken.line(bx_exp)$fit
+fitted_m_exp <- broken.line(m_exp)$fit
+
+#Combine dates and linear fit into one data frame
+q_data_exp <- cbind.data.frame(queens$date, fitted_q_exp)
+bk_data_exp <- cbind.data.frame(brooklyn$date, fitted_bk_exp)
+bx_data_exp <- cbind.data.frame(bronx$date, fitted_bx_exp)
+m_data_exp <- cbind.data.frame(man$date, fitted_m_exp)
+
+colnames(q_data_exp) <- c("Dates", "Pred1")
+colnames(bk_data_exp) <- c("Dates", "Pred1")
+colnames(bx_data_exp) <- c("Dates", "Pred1")
+colnames(m_data_exp) <- c("Dates", "Pred1")
+q_data_exp$Borough <- "Queens"
+bk_data_exp$Borough <- "Brooklyn"
+bx_data_exp$Borough <- "Bronx"
+m_data_exp$Borough <- "Manhattan"
+
+seg_exp <- rbind(q_data_exp, bk_data_exp, bx_data_exp, m_data_exp) #creating one dataframe with all fitted/expected log(cumulative case)
+
+################Get slope of mobility and COVID data#########
+
+##Mobility
+slopes1 <- rbind(slope(bx)$date1[2,], slope(bk)$date1[2,], slope(m)$date1[2,], slope(q)$date1[2,])
+slopes1 <- as.data.frame(slopes1)
+slopes1$SE_slope <- as.numeric(slopes1$St.Err.)
+slopes1$lCI <- slopes1[,4]
+slopes1$uCI <- slopes1[,5]
+slopes1$mean1 <- as.numeric(as.character(slopes1$'Est.'))
+slopes1 <- subset(slopes1, select=-c(St.Err., Est.))
+
+slopes2 <- cbind(slopes1, rbind(bx$psi, bk$psi, m$psi, q$psi))
+Borough <- c("Bronx","Brooklyn","Manhattan","Queens")
+slope_b <- cbind(slopes2, Borough)
+slope_b$SD <- as.numeric(slope_b$SE_slope)*sqrt(57)
+
+slope_b$date <- ymd("2020-01-04") + round(slope_b$'Est.'*7,2)
+slope_b$date_lCI <- slope_b$date - round(1.96*slope_b$St.Err*7,2)
+slope_b$date_uCI <- slope_b$date + round(1.96*slope_b$St.Err*7,2)
+
+slope_b$Borough = with(slope_b, reorder(Borough, date, median))
+
+##Merge case segmented output to the mobility data
+slope_b<- cbind(slope_b, exp_est, exp_SE)
+slope_b$dateexp <- ymd("2020-02-15") + round(slope_b$exp_est,2)
+slope_b$dateexp_lCI <- slope_b$dateexp - round(1.96*slope_b$St.Err,2)
+slope_b$dateexp_uCI <- slope_b$dateexp + round(1.96*slope_b$St.Err,2)
+
+##################Creating the figure############################
+
+#Create labels for the figure
+cut_subway <- data.frame(Ref = c("Queens", "Manhattan", "Bronx", "Brooklyn"), 
+                         vals = c(as.numeric(as.Date(slope_b$date[4])), 
+                                  as.numeric(slope_b$date[3]), 
+                                  as.numeric(slope_b$date[1]), 
+                                  as.numeric(slope_b$date[2])), 
+                         stringsAsFactors = FALSE)
+
+cuts2 <- data.frame(Ref = c("Queens", "Manhattan", "Bronx", "Brooklyn"),
+                    vals = c(as.numeric(as.Date(slope_b$dateexp[4])), 
+                             as.numeric(slope_b$dateexp[3]), 
+                             as.numeric(slope_b$dateexp[1]), 
+                             as.numeric(slope_b$dateexp[2])), 
+                    stringsAsFactors = FALSE)
+
+breakpoint_label  <- data.frame(Ref = c("    ", "    "), 
+                                vals = c(as.numeric(as.Date(slope_b$date[4])), 
+                                         as.numeric(as.Date(slope_b$dateexp[4]))), 
+                                vals2 = c(-20,-2), 
+                                stringsAsFactors = FALSE)
+
+COVID_bor_l$borough <- as.factor(COVID_bor_l$borough)
+seg_exp$Borough <- as.factor(seg_exp$Borough)
+seg$Borough <- as.factor(seg$Borough)
+
+###PLOT
+
+COVID_bor_l$case_log1 <- (COVID_bor_l$case_log*2.9)-31 #For plotting with two axis
+seg_exp$Pred <- (seg_exp$Pred1*2.9)-31
+seg_exp$Dates <- seg_exp$Dates %>% as.character() %>% mdy()
+COVID_bor_l$date <- COVID_bor_l$date %>% as.character() %>% mdy()
+COVID_bor_l$Borough <- dplyr::recode(COVID_bor_l$borough, "Kings"="Brooklyn", "New York"="Manhattan")
+
+fig2 <- ggplot() + geom_line(seg, mapping=aes(x=Dates, y=Pred, group=Borough, color=Borough), size=0.9, show.legend = FALSE) + scale_y_continuous(name = "Mobility", limits=c(-30,2.2), breaks = c(-30,-20,-10,0), sec.axis = sec_axis(~(.+31)/2.9, name = "log(Cumulative No. of Cases)", breaks = c(0,3,6,9,12))) + theme_classic(base_size=10) + geom_line(seg_exp, mapping=aes(x=Dates, y=Pred, group=Borough, color=Borough), show.legend=TRUE, size=0.9) + geom_smooth(COVID_bor_l, mapping=aes(x=date, y=case_log1, group=Borough, fill=Borough), color="transparent", alpha =.3, size=2, se=TRUE, span=0.45, show.legend = FALSE) + scale_color_manual(values = c("#1f77b4","#2ca02c","#d62728", "#dc5fbd")) + scale_fill_manual(values = c("#1f77b4","#2ca02c","#d62728", "#dc5fbd")) + scale_x_date(date_labels = "%m/%d/%y", limits = c(as.Date("2020-02-22"), as.Date("2020-04-11")), breaks=c(as.Date("2020-02-22"), as.Date("2020-02-29"), as.Date("2020-03-07"), as.Date("2020-03-14"),as.Date("2020-03-21"),as.Date("2020-03-28"),as.Date("2020-04-04"),as.Date("2020-04-11"))) + geom_vline(mapping = aes(xintercept = vals, colour = Ref), data = cut_subway, size=0.70, linetype=2, alpha=0.5, show.legend = FALSE) + geom_vline(mapping = aes(xintercept = vals, colour = Ref), data = cuts2, size=0.70, linetype=2, alpha=0.5, show.legend = FALSE) + geom_text(aes(x=as.Date(vals,origin = "1969-12-24"), label=Ref, y=vals2), data=breakpoint_label, alpha=0.75, size=4) + xlab("Date") + theme(panel.border = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text=element_text(size=15), axis.text=element_text(size=10, colour="black"), legend.position = c(0.85, 0.58), legend.text=element_text(size=10))
+
+plot(fig2)
+
+```
+
+## Figure 3
+
+Change in subway use by median income quantiles between February 22, 2020, and April 11, 2020. Loess smoothed lines and
+associated 95% confidence intervals were fitted over each income group. Vertical lines indicate timing of policies implemented in New York
+City; the dotted line indicates local state of emergency, the dashed line represents city schools closure, and the dotted-dashed line indicates
+stay-at-home order.
+
+```{r fig3, echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+#Combine the longitudinal mobility data at the ZCTA level with the cross-sectional median income variable at the ZCTA level
+
+nyc_change_long2_zcta_nosi1 <- left_join(mobility_zcta_bor_l, COVID_mobility_zcta_c[,c("ZCTA","median_income")], by=c("ZCTA"="ZCTA"))
+nyc_change_long2_zcta_nosi11 <- nyc_change_long2_zcta_nosi1 %>% mutate(income_d = ntile(median_income, 5))
+
+#To get the quantile minimum and maximum for each income group, to be used as labels in Figure 3
+
+quantile <- nyc_change_long2_zcta_nosi11 %>%
+  group_by(income_d) %>%
+  summarise(min=min(median_income,na.rm=TRUE), max=max(median_income,na.rm=TRUE))
+quantile
+
+#Create labels for figure
+cuts_5 <- data.frame(Executive_Order= c("      ","     ","    "), vals = c(as.numeric(as.Date("2020-03-07")), as.numeric(as.Date("2020-03-14")), as.numeric(as.Date("2020-03-21"))), stringsAsFactors = FALSE)
+
+#Fixing date variables
+nyc_change_long2_zcta_nosi11$date <- nyc_change_long2_zcta_nosi11$date  %>% as.character() %>% mdy()
+
+
+p <- ggplot() +
+  geom_smooth(nyc_change_long2_zcta_nosi11, mapping=aes(x=date, y=mobility, group=income_d, fill = income_d), color="transparent", alpha =0.10, size=1, se=TRUE, span=0.45) +
+  geom_smooth(nyc_change_long2_zcta_nosi11, mapping=aes(x=date, y=mobility, group=income_d, color=income_d),size=1.2, se=FALSE, span=0.5) + ylab("Mobility") + xlab("Date") +
+  ggtitle("") +
+  scale_color_distiller(palette="RdYlBu", trans="reverse", labels=c("15,778-22,544","22,545-27,588", "27,589-34,186","34,187-57,987","57,988-107,138"), guide = "legend") + scale_fill_distiller(palette="RdYlBu", trans="reverse", labels=c("15,778-22,544","22,545-27,588", "27,589-34,186","34,187-57,987","57,988-107,138"), guide = "none") 
+
+fig3 <- p + theme_classic(base_size=12) + labs(color="Median Income, $") + geom_vline(mapping = aes(xintercept = vals, linetype=Executive_Order), data = cuts_5, size=0.7, alpha=0.40, show.legend = FALSE) + scale_linetype_manual(values=c(4, 5, 3)) + geom_text(aes(x=as.Date(vals,origin = "1970-01-01")-c(7,5.5,5.5), label=Executive_Order, y=c(-18,-21,-24)), data=cuts_5, alpha=0.7, size=4)  + theme(
+  axis.text.x = element_text(angle = 45, hjust=1),
+  panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  legend.margin = margin(0, 15, 0, -15),
+  text=element_text(size=14),
+  axis.text=element_text(size=14, colour="black"),
+  legend.text=element_text(size=14),
+  legend.position = c(0.8, 0.7)) + scale_x_date(date_labels = "%m/%d/%y", limits = c(as.Date("2020-02-22"), as.Date("2020-04-11")), breaks=c(as.Date("2020-02-22"), as.Date("2020-02-29"), as.Date("2020-03-07"), as.Date("2020-03-14"),as.Date("2020-03-21"),as.Date("2020-03-28"),as.Date("2020-04-04"),as.Date("2020-04-11"))) + scale_y_continuous(breaks=c(0,-5,-10,-15,-20,-25)) 
+
+plot(fig3)
+
+```
+
+## Figure 4
+
+Associations among sociodemographic variables, mobility, and coronavirus disease 2019 (COVID-19) rate per 100,000 population.
+All COVID-19 models were single-predictor models adjusted for testing to account for differential testing within zip code tabulation areas. The
+COVID-19 case data were reported as of April 26, 2020, and mobility data were reported the week of April 11, 2020. The subway outcomes
+were also from single-predictor models (with no adjustments). The estimate for the rate of COVID-19 is a risk ratio (RR) with a null of 1, and the
+estimate for subway use is a slope (??) with a null of 0. See associated Web table 1 for more details. CI, confidence interval.
+
+
+```{r fig4, echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+regression_output$Variable <- factor(regression_output$Variable, levels = c("hs",
+                                                "healthins",
+                                                "minority",
+                                                "essential",
+                                                "health",
+                                                "essential_both",
+                                                "median_age",
+                                                "Median_Income",
+                                                "subway_use"),
+                       labels = c("<=High school education",
+                                  "Uninsured",
+                                  "Non-White/Hispanic",
+                                  "Non-health-care essential services",
+                                  "Health-care essential services",
+                                  "All essential services",
+                                  ">75 Years of age",
+                                  "Median income",
+                                  "Mobility"))
+
+regression_output$Outcome <- factor(regression_output$Outcome, levels = c("COVID_adjusted","Subway_Use"),
+                       labels = c("Rate of COVID-19 (per 100k)\n\nEstimate (adjusted for testing):\nRisk Ratio",
+                                  "Mobility (10 Units)\n\nEstimate (unadjusted):\nbeta"))
+
+#SEPARATE TO MAKE 2 PANEL PLOT
+
+df2 <- regression_output[1:8,]
+df3 <- regression_output[9:17,]
+df2$intercept <- 0
+df3$intercept <- 1
+
+#MOBILITY
+
+fig4_1 <- ggplot(data=df2, aes(x = Variable,y = RiskRatio, ymin = LowerLimit, ymax = UpperLimit )) +
+  scale_y_continuous(limits=c(-.5,1.5), breaks = c(-.5,0,.5,1,1.5)) +
+  geom_pointrange(cex=0.3) +
+  geom_hline(data = df2, aes(fill=Variable, yintercept = intercept), linetype=2, show.legend = FALSE) + xlab('') + 
+  ylab(expression(beta)) + geom_errorbar(aes(ymin=LowerLimit, ymax=UpperLimit), width=0.3,cex=0.7) +
+  theme_classic(base_size=12) +
+  coord_flip() + theme(legend.position="bottom") + guides(col=guide_legend(ncol=3, byrow=TRUE, reverse = TRUE, title.position = "bottom")) + theme(legend.text = element_text(size=12), text=element_text(size=12), axis.text=element_text(size=12, colour="black"), legend.margin = margin(10, 50, 10, 10)
+)
+
+plot(fig4_1)
+
+#RIKS RATIO
+
+fig4_2 <- ggplot(data=df3, aes(x = Variable,y = RiskRatio, ymin = LowerLimit, ymax = UpperLimit )) +
+  scale_y_continuous(trans = "log", limits=c(.8,2.2), breaks = c(.8,1,1.2,1.4,1.6,1.8, 2.0, 2.2)) +
+  geom_pointrange(cex=0.3) +
+  geom_hline(data = df3, aes(fill=Variable, yintercept = intercept), linetype=2, show.legend = FALSE) + xlab('') + 
+  ylab("Risk Ratio") + geom_errorbar(aes(ymin=LowerLimit, ymax=UpperLimit),width=0.3,cex=0.7) +
+  theme_classic(base_size=12) +
+  coord_flip() + theme(legend.position="bottom") + guides(col=guide_legend(ncol=3, byrow=TRUE, reverse = TRUE, title.position = "bottom")) + theme(legend.text = element_text(size=12), text=element_text(size=12), axis.text=element_text(size=12, colour="black"), legend.margin = margin(10, 50, 10, 10)
+)
+
+plot(fig4_2)
+
+```
